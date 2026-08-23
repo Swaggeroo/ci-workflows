@@ -16,7 +16,7 @@ jobs:
     permissions:
       contents: write
       packages: write
-    uses: Swaggeroo/ci-workflows/.github/workflows/release-and-build.yaml@v1
+    uses: Swaggeroo/ci-workflows/.github/workflows/release-and-build.yaml@v1.0.0
     with:
       version_file: version.txt
       image_namespace: ${{ github.repository_owner }}
@@ -35,16 +35,16 @@ jobs:
 | `image_namespace` | Registry namespace or owner | Yes | - |
 | `image_name` | Registry image name | Yes | - |
 | `publish_release` | Whether to create GitHub release and tag | No | `true` |
-| `dockerhub_enabled` | Whether to push to Docker Hub | No | `false` |
-| `dockerhub_username` | Docker Hub username / org | No | `""` |
+| `dockerhub_enabled` | Whether to also push to Docker Hub | No | `false` |
+| `dockerhub_username` | Docker Hub username or organization | No | `""` |
 
 #### Secrets
 
 | Secret | Description | Required |
 |---|---|---|
 | `token` | GitHub token for checkout and creating release tags | Yes |
-| `registry_password` | Password/token for GHCR login | Yes |
-| `dockerhub_password` | Password/token for Docker Hub login | No |
+| `registry_password` | Password or token for GHCR login | Yes |
+| `dockerhub_password` | Password or token for Docker Hub login | No |
 
 ---
 
@@ -60,7 +60,7 @@ jobs:
     if: github.actor == 'renovate[bot]'
     permissions:
       contents: write
-    uses: Swaggeroo/ci-workflows/.github/workflows/pr-bump-version.yaml@v1
+    uses: Swaggeroo/ci-workflows/.github/workflows/pr-bump-version.yaml@v1.0.0
     with:
       version_file: version.txt
     secrets:
@@ -81,11 +81,48 @@ jobs:
 
 ---
 
+## Releasing New Versions
+
+This repository uses **Semantic Versioning** (`vMAJOR.MINOR.PATCH`):
+- **MAJOR** (`v2.0.0`): Breaking changes (removed/renamed required inputs or secrets, incompatible behavior changes).
+- **MINOR** (`v1.1.0`): New features or optional inputs that are backward-compatible.
+- **PATCH** (`v1.0.1`): Bug fixes or optimizations without changing the interface.
+
+### Step-by-Step Release Process
+
+1. **Commit and push changes to `main`**:
+   ```bash
+   git add .
+   git commit -m "feat: add support for custom build args"
+   git push origin main
+   ```
+
+2. **Create an annotated Git tag**:
+   ```bash
+   git tag -a v1.1.0 -m "Release v1.1.0: Add support for custom build args"
+   ```
+
+3. **Push the tag to GitHub**:
+   ```bash
+   git push origin v1.1.0
+   ```
+
+4. **(Optional) Create a GitHub Release**:
+   Using the GitHub CLI:
+   ```bash
+   gh release create v1.1.0 --generate-notes
+   ```
+   Or via the GitHub web UI under **Releases** -> **Draft a new release** -> select tag `v1.1.0`.
+
+---
+
 ## Renovate Configuration
 
 Renovate automatically detects and updates reusable workflow references in your caller repositories.
 
-To keep your workflow calls updated to the latest tag (e.g. `@v1`), no special config is needed. If you pin SHA digests with comments, Renovate can maintain them with:
+When you push a new semver tag (e.g. `v1.1.0`), Renovate will automatically open pull requests in repositories using these workflows to bump the version tag.
+
+If you pin SHA digests with comments in caller repos, Renovate will maintain both the SHA and the version comment automatically when configured with:
 
 ```json
 {
