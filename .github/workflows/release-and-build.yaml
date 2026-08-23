@@ -1,0 +1,253 @@
+name: Reusable Release and Build
+
+on:
+  workflow_call:
+    inputs:
+      version_file:
+        description: Path to the version file.
+        required: false
+        type: string
+        default: version.txt
+      image_namespace:
+        description: Registry namespace or owner.
+        required: true
+        type: string
+      image_name:
+        description: Registry image name.
+        required: true
+        type: string
+      publish_release:
+        description: Whether to create the GitHub release and tag.
+        required: false
+        type: boolean
+        default: true
+      dockerhub_enabled:
+        description: Whether to also push to Docker Hub.
+        required: false
+        type: boolean
+        default: false
+      dockerhub_username:
+        description: Docker Hub username or organization name.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      token:
+        required: true
+      registry_password:
+        required: true
+      dockerhub_password:
+        required: false
+
+jobs:
+  create-release:
+    if: ${{ inputs.publish_release }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.token }}
+
+      - name: Read current version
+        run: |
+          VERSION=$(tr -d '[:space:]' < "${{ inputs.version_file }}")
+          echo "Current version: $VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Create Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ env.VERSION }}"
+          git push origin "${{ env.VERSION }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.VERSION }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.token }}
+
+  build:
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            suffix: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Read current version
+        run: |
+          VERSION=$(tr -d '[:space:]' < "${{ inputs.version_file }}")
+          echo "Current version: $VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Set lower case image name
+        run: |
+          echo "IMAGE_NAMESPACE_LC=${IMAGE_NAMESPACE,,}" >>"$GITHUB_ENV"
+          echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >>"$GITHUB_ENV"
+        env:
+          IMAGE_NAMESPACE: ${{ inputs.image_namespace }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host
+
+      - name: Log in to primary registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.registry_password }}
+
+      - name: Validate Docker Hub credentials
+        if: ${{ inputs.dockerhub_enabled }}
+        env:
+          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          DOCKERHUB_PASSWORD: ${{ secrets.dockerhub_password }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "dockerhub_username is required when dockerhub_enabled is true" >&2
+            exit 1
+          fi
+          if [ -z "$DOCKERHUB_PASSWORD" ]; then
+            echo "dockerhub_password is required when dockerhub_enabled is true" >&2
+            exit 1
+          fi
+
+      - name: Log in to Docker Hub
+        if: ${{ inputs.dockerhub_enabled }}
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.dockerhub_password }}
+
+      - name: Generate image tags
+        id: image-tags
+        env:
+          DOCKERHUB_ENABLED: ${{ inputs.dockerhub_enabled }}
+          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          TAG_SUFFIX: ${{ matrix.suffix }}
+        run: |
+          {
+            echo 'value<<EOF'
+            echo "ghcr.io/${IMAGE_NAMESPACE_LC}/${IMAGE_NAME_LC}:${VERSION}-${TAG_SUFFIX}"
+            if [ "$DOCKERHUB_ENABLED" = "true" ]; then
+              echo "docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME_LC}:${VERSION}-${TAG_SUFFIX}"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            GIT_COMMIT=${{ github.sha }}
+          tags: |
+            ${{ steps.image-tags.outputs.value }}
+          labels: |
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+
+  manifest:
+    needs:
+      - build
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Read current version
+        run: |
+          VERSION=$(tr -d '[:space:]' < "${{ inputs.version_file }}")
+          echo "Current version: $VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Set lower case image name
+        run: |
+          echo "IMAGE_NAMESPACE_LC=${IMAGE_NAMESPACE,,}" >>"$GITHUB_ENV"
+          echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >>"$GITHUB_ENV"
+        env:
+          IMAGE_NAMESPACE: ${{ inputs.image_namespace }}
+          IMAGE_NAME: ${{ inputs.image_name }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to primary registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.registry_password }}
+
+      - name: Validate Docker Hub credentials
+        if: ${{ inputs.dockerhub_enabled }}
+        env:
+          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          DOCKERHUB_PASSWORD: ${{ secrets.dockerhub_password }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "dockerhub_username is required when dockerhub_enabled is true" >&2
+            exit 1
+          fi
+          if [ -z "$DOCKERHUB_PASSWORD" ]; then
+            echo "dockerhub_password is required when dockerhub_enabled is true" >&2
+            exit 1
+          fi
+
+      - name: Log in to Docker Hub
+        if: ${{ inputs.dockerhub_enabled }}
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.dockerhub_password }}
+
+      - name: Create multi-arch manifests
+        env:
+          DOCKERHUB_ENABLED: ${{ inputs.dockerhub_enabled }}
+          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+        run: |
+          create_manifest() {
+            local base="$1"
+            docker buildx imagetools create \
+              --tag "${base}:${VERSION}" \
+              --tag "${base}:latest" \
+              "${base}:${VERSION}-amd64" \
+              "${base}:${VERSION}-arm64"
+          }
+
+          create_manifest "ghcr.io/${IMAGE_NAMESPACE_LC}/${IMAGE_NAME_LC}"
+
+          if [ "$DOCKERHUB_ENABLED" = "true" ]; then
+            create_manifest "docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME_LC}"
+          fi
