@@ -35,7 +35,7 @@ jobs:
           VERSION_PART=$(echo "$VERSION" | awk -F. '{print NF}')
 
           if [[ $VERSION_PART -ne 3 ]]; then
-            echo "version.txt must contain a semantic version like major.minor.patch" >&2
+            echo "${{ inputs.version_file }} must contain a semantic version like major.minor.patch" >&2
             exit 1
           fi
 
@@ -45,7 +45,7 @@ jobs:
           NEW_VERSION="${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$PATCH"
 
           echo "New version: $NEW_VERSION"
-          bash ./scripts/version-sync.sh bump "$NEW_VERSION"
+          curl -sS https://raw.githubusercontent.com/Swaggeroo/ci-workflows/main/scripts/version-sync.sh | bash -s -- bump "$NEW_VERSION" "${{ inputs.version_file }}"
           echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
 
       - name: Commit new version
