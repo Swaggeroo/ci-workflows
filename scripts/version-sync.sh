@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This script can run from anywhere, but assumes it's executed from the repo root
-# where version.txt is located, or we can use $GITHUB_WORKSPACE if available, otherwise $PWD.
 root="${GITHUB_WORKSPACE:-$PWD}"
-version_file="$root/version.txt"
 package_json="$root/package.json"
 package_lock="$root/package-lock.json"
+version_file="" # To be set by arguments
 
 usage() {
-	echo "usage: ${0##*/} [check|bump <version>]" >&2
+	echo "usage: ${0##*/} [check <version_file>] | [bump <new_version> <version_file>]" >&2
 	exit 1
 }
 
@@ -18,9 +16,9 @@ semver_ok() {
 }
 
 check_sync() {
-    # If version.txt does not exist, fail
+    # If version file does not exist, fail
     if [[ ! -f "$version_file" ]]; then
-        echo "version.txt not found" >&2
+        echo "Version file '$version_file' not found" >&2
         exit 1
     fi
 
@@ -37,12 +35,12 @@ lock = json.loads(Path(sys.argv[3]).read_text())
 
 errors = []
 if package.get("version") != version:
-    errors.append(f'package.json version {package.get("version")!r} does not match version.txt {version!r}')
+    errors.append(f'package.json version {package.get("version")!r} does not match version text {version!r}')
 if lock.get("version") != version:
-    errors.append(f'package-lock.json version {lock.get("version")!r} does not match version.txt {version!r}')
+    errors.append(f'package-lock.json version {lock.get("version")!r} does not match version text {version!r}')
 root_package = lock.get("packages", {}).get("", {})
 if root_package.get("version") != version:
-    errors.append(f'package-lock.json packages[""] version {root_package.get("version")!r} does not match version.txt {version!r}')
+    errors.append(f'package-lock.json packages[""] version {root_package.get("version")!r} does not match version text {version!r}')
 
 if errors:
     print("\n".join(errors), file=sys.stderr)
@@ -85,11 +83,14 @@ PY
 
 case "${1:-}" in
 	check)
+        version_file="${2:-$root/version.txt}"
 		check_sync
 		;;
 	bump)
-		[[ $# -eq 2 ]] || usage
-		bump_sync "$2"
+		[[ $# -ge 2 ]] || usage
+		new_version="$2"
+        version_file="${3:-$root/version.txt}"
+		bump_sync "$new_version"
 		;;
 	*)
 		usage
