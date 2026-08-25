@@ -26,16 +26,13 @@ on:
         required: false
         type: boolean
         default: false
-      dockerhub_username:
-        description: Docker Hub username or organization name.
-        required: false
-        type: string
-        default: ""
     secrets:
       token:
         required: true
       registry_password:
         required: true
+      dockerhub_username:
+        required: false
       dockerhub_password:
         required: false
 
@@ -120,7 +117,7 @@ jobs:
       - name: Validate Docker Hub credentials
         if: ${{ inputs.dockerhub_enabled }}
         env:
-          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          DOCKERHUB_USERNAME: ${{ secrets.dockerhub_username }}
           DOCKERHUB_PASSWORD: ${{ secrets.dockerhub_password }}
         run: |
           if [ -z "$DOCKERHUB_USERNAME" ]; then
@@ -137,14 +134,14 @@ jobs:
         uses: docker/login-action@v4
         with:
           registry: docker.io
-          username: ${{ inputs.dockerhub_username }}
+          username: ${{ secrets.dockerhub_username }}
           password: ${{ secrets.dockerhub_password }}
 
       - name: Generate image tags
         id: image-tags
         env:
           DOCKERHUB_ENABLED: ${{ inputs.dockerhub_enabled }}
-          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          DOCKERHUB_USERNAME: ${{ secrets.dockerhub_username }}
           TAG_SUFFIX: ${{ matrix.suffix }}
         run: |
           {
@@ -212,7 +209,7 @@ jobs:
       - name: Validate Docker Hub credentials
         if: ${{ inputs.dockerhub_enabled }}
         env:
-          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          DOCKERHUB_USERNAME: ${{ secrets.dockerhub_username }}
           DOCKERHUB_PASSWORD: ${{ secrets.dockerhub_password }}
         run: |
           if [ -z "$DOCKERHUB_USERNAME" ]; then
@@ -229,13 +226,13 @@ jobs:
         uses: docker/login-action@v4
         with:
           registry: docker.io
-          username: ${{ inputs.dockerhub_username }}
+          username: ${{ secrets.dockerhub_username }}
           password: ${{ secrets.dockerhub_password }}
 
       - name: Create multi-arch manifests
         env:
           DOCKERHUB_ENABLED: ${{ inputs.dockerhub_enabled }}
-          DOCKERHUB_USERNAME: ${{ inputs.dockerhub_username }}
+          DOCKERHUB_USERNAME: ${{ secrets.dockerhub_username }}
         run: |
           create_manifest() {
             local base="$1"
