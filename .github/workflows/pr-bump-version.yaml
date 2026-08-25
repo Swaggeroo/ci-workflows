@@ -45,7 +45,7 @@ jobs:
           NEW_VERSION="${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$PATCH"
 
           echo "New version: $NEW_VERSION"
-          bash ./scripts/version-sync.sh bump "$NEW_VERSION"
+          curl -sS https://raw.githubusercontent.com/Swaggeroo/ci-workflows/main/scripts/version-sync.sh | bash -s -- bump "$NEW_VERSION"
           echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
 
       - name: Commit new version
